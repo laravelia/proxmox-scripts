@@ -1,14 +1,14 @@
 #!/bin/bash
 
 # ==============================================================================
-# ERPNext + HRMS Automated Setup, Update, and Rollback Script
+# ERPNext + HRMS Automated Setup, Update, and Rollback Script (Production Mode)
 # Compatible with Ubuntu 22.04 LTS / Debian 12 (One-Liner & LXC Safe)
 # ==============================================================================
 
 set -e
 
 # !!! GANTI URL INI DENGAN URL RAW GITHUB ANDA !!!
-GITHUB_RAW_URL="https://raw.githubusercontent.com/laravelia/proxmox-scripts/refs/heads/install/erpnext-install.sh"
+GITHUB_RAW_URL="https://raw.githubusercontent.com/USERNAME/REPO/main/install_erpnext.sh"
 
 # Variable Configuration
 BENCH_DIR="$HOME/frappe-bench"
@@ -69,10 +69,10 @@ check_and_switch_root() {
 }
 
 # ------------------------------------------------------------------------------
-# 1. INSTALLATION FUNCTION
+# 1. INSTALLATION FUNCTION (PRODUCTION MODE)
 # ------------------------------------------------------------------------------
 install_erpnext() {
-    log_info "Memulai proses instalasi ERPNext + HRMS..."
+    log_info "Memulai proses instalasi ERPNext + HRMS (Production Mode)..."
 
     # Menghubungkan kembali keyboard/terminal untuk input interaktif saat dijalankan dari pipe curl
     if [ ! -t 0 ]; then
@@ -85,10 +85,10 @@ install_erpnext() {
     read -sp "Masukkan Password Administrator ERPNext: " ADMIN_PASS
     echo ""
 
-    log_info "1/5. Menginstal dependencies sistem..."
+    log_info "1/6. Menginstal dependencies sistem, Nginx, dan Supervisor..."
     sudo apt update && sudo apt upgrade -y
     sudo apt install -y python3-dev python3-pip python3-venv git mariadb-server mariadb-client \
-        redis-server curl xvfb libfontconfig wkhtmltopdf build-essential cron
+        redis-server curl xvfb libfontconfig wkhtmltopdf build-essential cron nginx supervisor fail2ban
 
     # Node.js Installation
     if ! command -v node &> /dev/null; then
@@ -102,11 +102,11 @@ install_erpnext() {
     fi
 
     # Frappe Bench Installation
-    log_info "2/5. Menginstal Frappe Bench CLI..."
+    log_info "2/6. Menginstal Frappe Bench CLI..."
     sudo pip3 install frappe-bench --break-system-packages 2>/dev/null || pip3 install frappe-bench
 
     # Setup MariaDB Configuration
-    log_info "3/5. Mengonfigurasi MariaDB..."
+    log_info "3/6. Mengonfigurasi MariaDB..."
     sudo mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$MYSQL_ROOT_PASS'; FLUSH PRIVILEGES;"
     
     MYSQL_CONF="/etc/mysql/mariadb.conf.d/50-server.cnf"
@@ -125,18 +125,18 @@ EOF"
     fi
 
     # Initialize Bench
-    log_info "4/5. Membuat Bench Directory ($BENCH_VERSION)..."
+    log_info "4/6. Membuat Bench Directory ($BENCH_VERSION)..."
     bench init --frappe-branch $BENCH_VERSION $BENCH_DIR
     cd $BENCH_DIR
 
-    # FIX: Menjalankan instance Redis lokal sebagai daemon untuk menghindari Connection Refused Error
-    log_info "Menjalankan instance Redis (Queue, Cache, SocketIO) di latar belakang..."
+    # Jalankan Redis temporary daemon untuk tahap pembuatan site & app
+    log_info "Menjalankan instance Redis sementara untuk proses instalasi..."
     redis-server config/redis_queue.conf --daemonize yes || true
     redis-server config/redis_cache.conf --daemonize yes || true
     redis-server config/redis_socketio.conf --daemonize yes || true
 
     # Create Site & Install Apps
-    log_info "5/5. Mengunduh dan memasang ERPNext + HRMS..."
+    log_info "5/6. Mengunduh dan memasang ERPNext + HRMS..."
     bench new-site $SITE_NAME --mariadb-root-password $MYSQL_ROOT_PASS --admin-password $ADMIN_PASS
     
     bench get-app --branch $BENCH_VERSION erpnext
@@ -145,10 +145,33 @@ EOF"
     bench --site $SITE_NAME install-app erpnext
     bench --site $SITE_NAME install-app hrms
 
+    # Setup Production Mode (Nginx + Supervisor)
+    log_info "6/6. Mengonfigurasi mode Production (Nginx & Supervisor)..."
+    
+    # Hentikan Redis temporary agar diambil alih oleh Supervisor
+    pkill -f redis || true
+
+    # Enable and start background services
+    sudo systemctl enable supervisor nginx
+    sudo systemctl start supervisor nginx
+
+    # Konfigurasi Production otomatis via Bench
+    sudo $(which bench) setup production frappe --yes
+
+    # Reload services
+    sudo supervisorctl reread
+    sudo supervisorctl update
+    sudo supervisorctl restart all
+    sudo systemctl restart nginx
+
     # Create shortcut commands for update and rollback
     setup_shortcuts
 
-    log_info "Instalasi Selesai! Jalankan 'cd $BENCH_DIR && bench start' untuk menjalankan server."
+    log_info "================================================================="
+    log_info "Instalasi Production Selesai!"
+    log_info "ERPNext & HRMS sudah berjalan di background via Nginx & Supervisor."
+    log_info "Akses web Anda di IP server atau domain: http://$SITE_NAME"
+    log_info "================================================================="
 }
 
 # ------------------------------------------------------------------------------
