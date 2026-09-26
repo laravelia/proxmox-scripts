@@ -74,7 +74,7 @@ check_and_switch_root() {
 install_erpnext() {
     log_info "Memulai proses instalasi ERPNext + HRMS..."
 
-    # Menghubungkan kembali keyboard/terminal untuk input interaktif
+    # Menghubungkan kembali keyboard/terminal untuk input interaktif saat dijalankan dari pipe curl
     if [ ! -t 0 ]; then
         exec < /dev/tty 2>/dev/null || true
     fi
@@ -129,6 +129,12 @@ EOF"
     bench init --frappe-branch $BENCH_VERSION $BENCH_DIR
     cd $BENCH_DIR
 
+    # FIX: Menjalankan instance Redis lokal sebagai daemon untuk menghindari Connection Refused Error
+    log_info "Menjalankan instance Redis (Queue, Cache, SocketIO) di latar belakang..."
+    redis-server config/redis_queue.conf --daemonize yes || true
+    redis-server config/redis_cache.conf --daemonize yes || true
+    redis-server config/redis_socketio.conf --daemonize yes || true
+
     # Create Site & Install Apps
     log_info "5/5. Mengunduh dan memasang ERPNext + HRMS..."
     bench new-site $SITE_NAME --mariadb-root-password $MYSQL_ROOT_PASS --admin-password $ADMIN_PASS
@@ -142,7 +148,7 @@ EOF"
     # Create shortcut commands for update and rollback
     setup_shortcuts
 
-    log_info "Instalasi Selesai! Jalankan 'bench start' di dalam direktori $BENCH_DIR untuk memulai server."
+    log_info "Instalasi Selesai! Jalankan 'cd $BENCH_DIR && bench start' untuk menjalankan server."
 }
 
 # ------------------------------------------------------------------------------
