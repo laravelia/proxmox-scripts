@@ -8,7 +8,7 @@
 set -e
 
 # !!! GANTI URL INI DENGAN URL RAW GITHUB ANDA !!!
-GITHUB_RAW_URL="https://raw.githubusercontent.com/USERNAME/REPO/main/install_erpnext.sh"
+GITHUB_RAW_URL="https://raw.githubusercontent.com/laravelia/proxmox-scripts/refs/heads/install/erpnext-install.sh"
 
 # Variable Configuration
 BENCH_DIR="$HOME/frappe-bench"
