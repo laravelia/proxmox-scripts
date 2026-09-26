@@ -16,5 +16,5 @@ build_container
 # POINT PENTING: Arahkan installer ke script install milik Anda di github
 description="ERPNext + HRMS"
 msg_info "Installing $APP"
-lxc-attach -n $CTID -- bash -c "$(curl -fsSL https://raw.githubusercontent.com/username/my-proxmox-scripts/main/install/my-erpnext-install.sh)"
+lxc-attach -n $CTID -- bash -c "$(curl -fsSL https://raw.githubusercontent.com/laravelia/proxmox-scripts/blob/install/erpnext-install.sh)"
 msg_ok "Installed $APP"
