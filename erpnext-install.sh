@@ -2,10 +2,13 @@
 
 # ==============================================================================
 # ERPNext + HRMS Automated Setup, Update, and Rollback Script
-# Compatible with Ubuntu 22.04 LTS / Debian 12 (Pipe & LXC Safe)
+# Compatible with Ubuntu 22.04 LTS / Debian 12 (One-Liner & LXC Safe)
 # ==============================================================================
 
 set -e
+
+# !!! GANTI URL INI DENGAN URL RAW GITHUB ANDA !!!
+GITHUB_RAW_URL="https://raw.githubusercontent.com/laravelia/proxmox-scripts/refs/heads/install/erpnext-install.sh"
 
 # Variable Configuration
 BENCH_DIR="$HOME/frappe-bench"
@@ -24,7 +27,7 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 # ------------------------------------------------------------------------------
-# AUTO-HANDLE ROOT / LXC USER CREATION (PIPE-SAFE)
+# AUTO-HANDLE ROOT / LXC USER CREATION (PIPE & ONE-LINER SAFE)
 # ------------------------------------------------------------------------------
 check_and_switch_root() {
     if [ "$EUID" -eq 0 ]; then
@@ -44,22 +47,16 @@ check_and_switch_root() {
 
         TARGET_PATH="/home/frappe/install_erpnext.sh"
 
-        # Deteksi jika skrip dijalankan dari file fisik lokal
+        # Jika dijalankan dari file lokal -> copy file. Jika dari pipe -> download dari GitHub RAW URL
         if [ -f "$0" ] && [ "$0" != "bash" ] && [ "$0" != "-bash" ]; then
             cp "$(readlink -f "$0")" "$TARGET_PATH"
         else
-            # Jika dijalankan via curl/pipe, baca langsung dari fd (file descriptor) atau stdin
-            log_info "Menyimpan skrip eksekusi ke $TARGET_PATH..."
-            if [ -f /proc/self/fd/0 ]; then
-                cat /proc/self/fd/0 > "$TARGET_PATH" 2>/dev/null || true
-            fi
-            
-            # Jika file masih kosong (karena stdin terpakai), unduh ulang otomatis atau tulis ulang
-            if [ ! -s "$TARGET_PATH" ]; then
-                log_error "Gagal menyalin isi skrip dari pipe."
-                log_info "Silakan simpan file terlebih dahulu dengan perintah: nano install_erpnext.sh"
+            log_info "Mengunduh salinan skrip fisik ke $TARGET_PATH..."
+            curl -fsSL "$GITHUB_RAW_URL" -o "$TARGET_PATH" || {
+                log_error "Gagal mengunduh skrip dari $GITHUB_RAW_URL."
+                log_error "Pastikan variabel GITHUB_RAW_URL di dalam skrip sudah diisi dengan URL GitHub Anda!"
                 exit 1
-            fi
+            }
         fi
 
         chown frappe:frappe "$TARGET_PATH"
@@ -77,7 +74,11 @@ check_and_switch_root() {
 install_erpnext() {
     log_info "Memulai proses instalasi ERPNext + HRMS..."
 
-    # Prompt required input
+    # Menghubungkan kembali keyboard/terminal untuk input interaktif
+    if [ ! -t 0 ]; then
+        exec < /dev/tty 2>/dev/null || true
+    fi
+
     read -p "Masukkan nama site (misal: erp.local): " SITE_NAME
     read -sp "Masukkan Password Root MariaDB: " MYSQL_ROOT_PASS
     echo ""
