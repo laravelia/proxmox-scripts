@@ -2,7 +2,7 @@
 
 # ==============================================================================
 # ERPNext + HRMS Automated Setup, Update, and Rollback Script
-# Compatible with Ubuntu 22.04 LTS / Debian 12 (Auto LXC/Root Handler)
+# Compatible with Ubuntu 22.04 LTS / Debian 12 (Safe Pipe & Auto-Root LXC Handler)
 # ==============================================================================
 
 set -e
@@ -31,23 +31,33 @@ check_and_switch_root() {
         log_warn "Terdeteksi menjalankan skrip sebagai root (LXC Container/Proxmox)."
         log_info "Membuat user non-root khusus 'frappe' untuk Frappe Bench..."
 
+        # Install sudo jika belum terpasang di LXC
+        apt update && apt install -y sudo curl git
+
         # Buat user frappe jika belum ada
         if ! id "frappe" &>/dev/null; then
-            # Install sudo dulu jika belum terpasang di LXC
-            apt update && apt install -y sudo
-            
-            # Buat user frappe tanpa prompt password awal
             useradd -m -s /bin/bash frappe
             echo "frappe ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/frappe
             chmod 0440 /etc/sudoers.d/frappe
             log_info "User 'frappe' berhasil dibuat dan diberi akses sudo."
         fi
 
-        # Salin file skrip ini ke direktori home user frappe agar bisa dieksekusi
-        SCRIPT_PATH=$(readlink -f "$0")
         TARGET_PATH="/home/frappe/install_erpnext.sh"
-        
-        cp "$SCRIPT_PATH" "$TARGET_PATH"
+
+        # Deteksi apakah skrip berasal dari file lokal atau dari Pipe/Stdin
+        if [ -f "$0" ] && [ "$0" != "bash" ] && [ "$0" != "-bash" ]; then
+            SCRIPT_PATH=$(readlink -f "$0")
+            cp "$SCRIPT_PATH" "$TARGET_PATH"
+        else
+            log_info "Menyimpan salinan skrip ke $TARGET_PATH..."
+            cat "$0" > "$TARGET_PATH" 2>/dev/null || true
+            
+            # Jika penyalinan dari stdin kosong, buat file baru dari skrip ini
+            if [ ! -s "$TARGET_PATH" ]; then
+                cp /proc/self/fd/0 "$TARGET_PATH" 2>/dev/null || true
+            fi
+        fi
+
         chown frappe:frappe "$TARGET_PATH"
         chmod +x "$TARGET_PATH"
 
@@ -209,7 +219,7 @@ rollback_erpnext() {
 # SHORTCUT SETUP
 # ------------------------------------------------------------------------------
 setup_shortcuts() {
-    SCRIPT_PATH=$(readlink -f "$0")
+    SCRIPT_PATH="/home/frappe/install_erpnext.sh"
     
     # Add alias to user's bashrc if not present
     if ! grep -q "erpnext-update" "$HOME/.bashrc"; then
@@ -223,7 +233,6 @@ setup_shortcuts() {
 # ------------------------------------------------------------------------------
 # CLI ROUTER
 # ------------------------------------------------------------------------------
-# Cek root terlebih dahulu sebelum menjalankan fungsi lainnya
 check_and_switch_root "$1"
 
 case "$1" in
