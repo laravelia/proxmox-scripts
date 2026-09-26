@@ -2,7 +2,7 @@
 
 # ==============================================================================
 # ERPNext + HRMS Automated Setup, Update, and Rollback Script
-# Compatible with Ubuntu 22.04 LTS / Debian 12
+# Compatible with Ubuntu 22.04 LTS / Debian 12 (Auto LXC/Root Handler)
 # ==============================================================================
 
 set -e
@@ -24,15 +24,44 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 # ------------------------------------------------------------------------------
+# AUTO-HANDLE ROOT / LXC USER CREATION
+# ------------------------------------------------------------------------------
+check_and_switch_root() {
+    if [ "$EUID" -eq 0 ]; then
+        log_warn "Terdeteksi menjalankan skrip sebagai root (LXC Container/Proxmox)."
+        log_info "Membuat user non-root khusus 'frappe' untuk Frappe Bench..."
+
+        # Buat user frappe jika belum ada
+        if ! id "frappe" &>/dev/null; then
+            # Install sudo dulu jika belum terpasang di LXC
+            apt update && apt install -y sudo
+            
+            # Buat user frappe tanpa prompt password awal
+            useradd -m -s /bin/bash frappe
+            echo "frappe ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/frappe
+            chmod 0440 /etc/sudoers.d/frappe
+            log_info "User 'frappe' berhasil dibuat dan diberi akses sudo."
+        fi
+
+        # Salin file skrip ini ke direktori home user frappe agar bisa dieksekusi
+        SCRIPT_PATH=$(readlink -f "$0")
+        TARGET_PATH="/home/frappe/install_erpnext.sh"
+        
+        cp "$SCRIPT_PATH" "$TARGET_PATH"
+        chown frappe:frappe "$TARGET_PATH"
+        chmod +x "$TARGET_PATH"
+
+        log_info "Beralih eksekusi ke user 'frappe'..."
+        exec su - frappe -c "$TARGET_PATH $1"
+        exit 0
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # 1. INSTALLATION FUNCTION
 # ------------------------------------------------------------------------------
 install_erpnext() {
     log_info "Memulai proses instalasi ERPNext + HRMS..."
-
-    if [ "$EUID" -eq 0 ]; then
-        log_error "Jangan jalankan skrip ini sebagai root! Gunakan user biasa dengan akses sudo."
-        exit 1
-    fi
 
     # Prompt required input
     read -p "Masukkan nama site (misal: erp.local): " SITE_NAME
@@ -194,6 +223,9 @@ setup_shortcuts() {
 # ------------------------------------------------------------------------------
 # CLI ROUTER
 # ------------------------------------------------------------------------------
+# Cek root terlebih dahulu sebelum menjalankan fungsi lainnya
+check_and_switch_root "$1"
+
 case "$1" in
     --update)
         update_erpnext
