@@ -2,7 +2,7 @@
 
 # ==============================================================================
 # ERPNext + HRMS Automated Setup, Update, and Rollback Script
-# Compatible with Ubuntu 22.04 LTS / Debian 12 (Safe Pipe & Auto-Root LXC Handler)
+# Compatible with Ubuntu 22.04 LTS / Debian 12 (Pipe & LXC Safe)
 # ==============================================================================
 
 set -e
@@ -24,14 +24,14 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 # ------------------------------------------------------------------------------
-# AUTO-HANDLE ROOT / LXC USER CREATION
+# AUTO-HANDLE ROOT / LXC USER CREATION (PIPE-SAFE)
 # ------------------------------------------------------------------------------
 check_and_switch_root() {
     if [ "$EUID" -eq 0 ]; then
         log_warn "Terdeteksi menjalankan skrip sebagai root (LXC Container/Proxmox)."
         log_info "Membuat user non-root khusus 'frappe' untuk Frappe Bench..."
 
-        # Install sudo jika belum terpasang di LXC
+        # Update repositori & pastikan dependency dasar terpasang
         apt update && apt install -y sudo curl git
 
         # Buat user frappe jika belum ada
@@ -44,17 +44,21 @@ check_and_switch_root() {
 
         TARGET_PATH="/home/frappe/install_erpnext.sh"
 
-        # Deteksi apakah skrip berasal dari file lokal atau dari Pipe/Stdin
+        # Deteksi jika skrip dijalankan dari file fisik lokal
         if [ -f "$0" ] && [ "$0" != "bash" ] && [ "$0" != "-bash" ]; then
-            SCRIPT_PATH=$(readlink -f "$0")
-            cp "$SCRIPT_PATH" "$TARGET_PATH"
+            cp "$(readlink -f "$0")" "$TARGET_PATH"
         else
-            log_info "Menyimpan salinan skrip ke $TARGET_PATH..."
-            cat "$0" > "$TARGET_PATH" 2>/dev/null || true
+            # Jika dijalankan via curl/pipe, baca langsung dari fd (file descriptor) atau stdin
+            log_info "Menyimpan skrip eksekusi ke $TARGET_PATH..."
+            if [ -f /proc/self/fd/0 ]; then
+                cat /proc/self/fd/0 > "$TARGET_PATH" 2>/dev/null || true
+            fi
             
-            # Jika penyalinan dari stdin kosong, buat file baru dari skrip ini
+            # Jika file masih kosong (karena stdin terpakai), unduh ulang otomatis atau tulis ulang
             if [ ! -s "$TARGET_PATH" ]; then
-                cp /proc/self/fd/0 "$TARGET_PATH" 2>/dev/null || true
+                log_error "Gagal menyalin isi skrip dari pipe."
+                log_info "Silakan simpan file terlebih dahulu dengan perintah: nano install_erpnext.sh"
+                exit 1
             fi
         fi
 
