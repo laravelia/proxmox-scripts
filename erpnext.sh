@@ -22,8 +22,7 @@ variables
 color
 catch_errors
 
-# Fungsi untuk mendeteksi nama site secara aman
-get_site_name() {
+function get_site_name() {
   local site=""
   if [[ -d /opt/frappe-bench/sites ]]; then
     site="$(find /opt/frappe-bench/sites -maxdepth 2 -name "site_config.json" 2>/dev/null | head -n 1 | awk -F'/' '{print $(NF-1)}')"
@@ -31,8 +30,7 @@ get_site_name() {
   echo "${site:-site1.local}"
 }
 
-install_hrms_inside_container() {
-  local SITE
+function install_hrms() {
   SITE="$(get_site_name)"
 
   if [[ ! -d /opt/frappe-bench/apps/hrms ]]; then
@@ -87,7 +85,7 @@ function update_script() {
     fi
     msg_ok "Switched to v16"
 
-    install_hrms_inside_container
+    install_hrms
 
     msg_info "Running database migration (Patience)"
     for i in 1 2 3; do
@@ -107,7 +105,7 @@ function update_script() {
     $STD sudo -u frappe bash -c 'export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"; cd /opt/frappe-bench && bench restart'
     msg_ok "Upgraded ERPNext to v16"
   else
-    install_hrms_inside_container
+    install_hrms
 
     msg_info "Updating ERPNext"
     $STD sudo -u frappe bash -c 'export PATH="$HOME/.local/bin:$PATH"; cd /opt/frappe-bench && bench update --reset'
@@ -121,9 +119,17 @@ start
 build_container
 description
 
-# Eksekusi pemasangan HRMS ke dalam LXC via pct exec
+# Memasang HRMS menggunakan perintah bench langsung di dalam LXC via pct exec yang aman
 msg_info "Installing HRMS Application into LXC Container"
-pct exec "$CTID" -- bash -c "$(declare -f get_site_name install_hrms_inside_container); install_hrms_inside_container"
+pct exec "$CTID" -- bash -c '
+  export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+  SITE=$(find /opt/frappe-bench/sites -maxdepth 2 -name "site_config.json" 2>/dev/null | head -n 1 | awk -F"/" "{print \$(NF-1)}")
+  SITE="${SITE:-site1.local}"
+  if [ ! -d /opt/frappe-bench/apps/hrms ]; then
+    sudo -u frappe bash -c "export PATH=\"\$HOME/.local/bin:/usr/local/bin:\$PATH\"; cd /opt/frappe-bench && bench get-app hrms"
+  fi
+  sudo -u frappe bash -c "export PATH=\"\$HOME/.local/bin:/usr/local/bin:\$PATH\"; cd /opt/frappe-bench && bench --site ${SITE} install-app hrms"
+'
 msg_ok "Installed HRMS Application"
 
 msg_ok "Completed Successfully!\n"
