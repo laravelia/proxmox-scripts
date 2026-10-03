@@ -22,21 +22,28 @@ variables
 color
 catch_errors
 
-function install_hrms() {
-  SITE="$(ls /opt/frappe-bench/sites/*/site_config.json 2>/dev/null | head -1 | cut -d/ -f5)"
-  [[ -z "$SITE" ]] && SITE="site1.local"
+# Fungsi untuk mendeteksi nama site secara aman
+get_site_name() {
+  local site=""
+  if [[ -d /opt/frappe-bench/sites ]]; then
+    site="$(find /opt/frappe-bench/sites -maxdepth 2 -name "site_config.json" 2>/dev/null | head -n 1 | awk -F'/' '{print $(NF-1)}')"
+  fi
+  echo "${site:-site1.local}"
+}
 
-  # Cek apakah aplikasi hrms sudah di-get oleh bench
+install_hrms_inside_container() {
+  local SITE
+  SITE="$(get_site_name)"
+
   if [[ ! -d /opt/frappe-bench/apps/hrms ]]; then
     msg_info "Getting HRMS app"
-    # Mengambil repositori HRMS (akan menyesuaikan branch frappe/erpnext secara otomatis)
     $STD sudo -u frappe bash -c 'export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"; cd /opt/frappe-bench && bench get-app hrms'
     msg_ok "Downloaded HRMS app"
   fi
 
   msg_info "Installing HRMS to site ${SITE}"
   $STD sudo -u frappe bash -c "export PATH=\"\$HOME/.local/bin:/usr/local/bin:\$PATH\"; cd /opt/frappe-bench && bench --site ${SITE} install-app hrms"
-  msg_ok "Installed HRMS to site"
+  msg_ok "Installed HRMS to site ${SITE}"
 }
 
 function update_script() {
@@ -49,8 +56,7 @@ function update_script() {
   fi
 
   FRAPPE_MAJOR="$(grep -oP '__version__\s*=\s*[\x27"]\K[0-9]+' /opt/frappe-bench/apps/frappe/frappe/__init__.py 2>/dev/null || echo 0)"
-  SITE="$(ls /opt/frappe-bench/sites/*/site_config.json 2>/dev/null | head -1 | cut -d/ -f5)"
-  [[ -z "$SITE" ]] && SITE="site1.local"
+  SITE="$(get_site_name)"
 
   msg_info "Stopping ERPNext service"
   $STD supervisorctl stop all
@@ -73,7 +79,6 @@ function update_script() {
     msg_ok "Migrated environment"
 
     msg_info "Switching Frappe, ERPNext, and HRMS to v16 (Patience)"
-    # Penambahan hrms pada perinthan switch-to-branch
     $STD sudo -u frappe bash -c 'export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"; cd /opt/frappe-bench && bench switch-to-branch version-16 frappe erpnext hrms --upgrade' || true
     NEW_MAJOR="$(grep -oP '__version__\s*=\s*[\x27"]\K[0-9]+' /opt/frappe-bench/apps/frappe/frappe/__init__.py 2>/dev/null || echo 0)"
     if [[ "${NEW_MAJOR:-0}" -lt 16 ]]; then
@@ -82,8 +87,7 @@ function update_script() {
     fi
     msg_ok "Switched to v16"
 
-    # Memastikan HRMS terinstal pada site jika belum ada
-    install_hrms
+    install_hrms_inside_container
 
     msg_info "Running database migration (Patience)"
     for i in 1 2 3; do
@@ -103,8 +107,7 @@ function update_script() {
     $STD sudo -u frappe bash -c 'export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"; cd /opt/frappe-bench && bench restart'
     msg_ok "Upgraded ERPNext to v16"
   else
-    # Memastikan HRMS terpasang saat melakukan update reguler
-    install_hrms
+    install_hrms_inside_container
 
     msg_info "Updating ERPNext"
     $STD sudo -u frappe bash -c 'export PATH="$HOME/.local/bin:$PATH"; cd /opt/frappe-bench && bench update --reset'
@@ -118,8 +121,10 @@ start
 build_container
 description
 
-# Otomatis install HRMS setelah proses pembuatan kontainer selesai
-install_hrms
+# Eksekusi pemasangan HRMS ke dalam LXC via pct exec
+msg_info "Installing HRMS Application into LXC Container"
+pct exec "$CTID" -- bash -c "$(declare -f get_site_name install_hrms_inside_container); install_hrms_inside_container"
+msg_ok "Installed HRMS Application"
 
 msg_ok "Completed Successfully!\n"
 echo -e "${CREATING}${GN}${APP} setup has been successfully initialized!${CL}"
